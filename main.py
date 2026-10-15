@@ -42,7 +42,7 @@ st.markdown(
 @st.cache_data
 def load_data():
     """지정된 GitHub URL에서 ZIP 압축 CSV 데이터를 읽어오고 최신 연도 데이터를 추출합니다."""
-    url = "https://raw.githubusercontent.com/first2022-cyber/contents/main/population_ts_yearly_gender.zip"
+    url = "https://raw.githubusercontent.com/wonducoffee89/contents/main/population_ts_yearly_gender.zip"
 
     # 판다스로 ZIP 내 CSV 데이터 직접 읽기 (EUC-KR 또는 UTF-8 인코딩 처리)
     try:
