@@ -42,9 +42,10 @@ st.markdown(
 @st.cache_data
 def load_data():
     """지정된 GitHub URL에서 ZIP 압축 CSV 데이터를 읽어오고 최신 연도 데이터를 추출합니다."""
-    url = "https://raw.githubusercontent.com/wonducoffee89/contents/main/population_ts_yearly_gender.zip"
+    # 본인의 GitHub 유저네임으로 url의 'first2022-cyber' 부분을 교체해 주세요.
+    url = "https://raw.githubusercontent.com/first2022-cyber/contents/main/population_ts_yearly_gender.zip"
 
-    # 판다스로 ZIP 내 CSV 데이터 직접 읽기 (EUC-KR 또는 UTF-8 인코딩 처리)
+    # 판다스로 ZIP 내 CSV 데이터 직접 읽기 (UTF-8 또는 EUC-KR 인코딩 처리)
     try:
         df = pd.read_csv(url, encoding="utf-8")
     except UnicodeDecodeError:
@@ -104,53 +105,102 @@ with col3:
 selected_row = df_sigungu[df_sigungu["동"] == selected_dong].iloc[0]
 
 # -----------------------------------------------------------------------------
-# 5. 인구 데이터 정리 및 라벨 순서 고정
+# 5. 인구 데이터 정리 및 통계 지표 계산
 # -----------------------------------------------------------------------------
-# 나이 라벨 생성 (0세, 1세, ..., 99세, 100세 이상)
+# 나이 라벨 생성 (0세 ~ 99세, 100세 이상)
 age_labels = [f"{i}세" for i in range(100)] + ["100세 이상"]
 
 male_pop = []  # 남자 인구수 (음수로 저장)
 female_pop = []  # 여자 인구수 (양수로 저장)
+age_values = list(range(100)) + [100]  # 평균 나이 계산용 숫자 리스트 (100세 이상은 100으로 계산)
 
-for age in age_labels:
-    # 컬럼 이름 형식: '남_0세', '여_0세', '남_100세 이상'
+total_population = 0
+total_age_sum = 0
+elderly_population = 0  # 65세 이상 인구
+child_population = 0  # 14세 이하 유소년 인구
+
+for idx, age in enumerate(age_labels):
     m_col = f"남_{age}"
     f_col = f"여_{age}"
 
-    # 데이터 추출 (값이 없으면 0으로 처리)
-    m_val = selected_row.get(m_col, 0)
-    f_val = selected_row.get(f_col, 0)
+    m_val = int(selected_row.get(m_col, 0))
+    f_val = int(selected_row.get(f_col, 0))
 
-    # Plotly 시각화를 위해 남자는 음수(-), 여자는 양수(+)로 변경
-    male_pop.append(-int(m_val))
-    female_pop.append(int(f_val))
+    # 그래프용 데이터 (남자는 음수, 여자는 양수)
+    male_pop.append(-m_val)
+    female_pop.append(f_val)
+
+    # 나이별 합계 인구
+    pop_at_age = m_val + f_val
+    total_population += pop_at_age
+
+    # 평균 연령 계산을 위한 총 나이 합산
+    total_age_sum += pop_at_age * age_values[idx]
+
+    # 고령 인구(65세 이상) 계산
+    if age_values[idx] >= 65:
+        elderly_population += pop_at_age
+
+    # 유소년 인구(0세~14세) 계산
+    if age_values[idx] <= 14:
+        child_population += pop_at_age
+
+# 주요 지표 계산
+avg_age = total_age_sum / total_population if total_population > 0 else 0
+elderly_ratio = (
+    (elderly_population / total_population) * 100
+    if total_population > 0
+    else 0
+)
 
 # -----------------------------------------------------------------------------
-# 6. Plotly 인구 피라미드 가로 막대그래프 생성
+# 6. 지표 카드 3개 나란히 표시 (그래프 위)
+# -----------------------------------------------------------------------------
+st.markdown("### 📊 주요 인구 지표")
+m_col1, m_col2, m_col3 = st.columns(3)
+
+m_col1.metric("총인구", f"{total_population:,} 명")
+m_col2.metric("평균연령", f"{avg_age:.1f} 세")
+
+# 고령화율 20% 이상일 때 경고 라벨/주의 표시 붙이기
+if elderly_ratio >= 20.0:
+    m_col3.metric(
+        "고령화율 (65세 이상)",
+        f"{elderly_ratio:.1f} %",
+        delta="⚠️ 초고령사회 (20% 초과)",
+        delta_color="inverse",
+    )
+else:
+    m_col3.metric("고령화율 (65세 이상)", f"{elderly_ratio:.1f} %")
+
+st.markdown("---")
+
+# -----------------------------------------------------------------------------
+# 7. Plotly 인구 피라미드 가로 막대그래프 생성
 # -----------------------------------------------------------------------------
 fig = go.Figure()
 
-# 남자 데이터 (왼쪽, 음수값) - 따뜻한 블루계열/인디고
+# 남자 데이터 (왼쪽, 음수값) - 따뜻한 올리브 그린
 fig.add_trace(
     go.Bar(
         y=age_labels,
         x=male_pop,
         name="남자",
         orientation="h",
-        marker=dict(color="#6B8E23"),  # 따뜻한 느낌의 올리브 그린
+        marker=dict(color="#6B8E23"),
         hovertemplate="남자 %{y}: %{customdata}명<extra></extra>",
-        customdata=[abs(x) for x in male_pop],  # 툴팁에는 양수로 표시
+        customdata=[abs(x) for x in male_pop],
     )
 )
 
-# 여자 데이터 (오른쪽, 양수값) - 따뜻한 핑크/테라코타계열
+# 여자 데이터 (오른쪽, 양수값) - 따뜻한 테라코타 붉은색
 fig.add_trace(
     go.Bar(
         y=age_labels,
         x=female_pop,
         name="여자",
         orientation="h",
-        marker=dict(color="#E07A5F"),  # 따뜻한 느낌의 테라코타 붉은색
+        marker=dict(color="#E07A5F"),
         hovertemplate="여자 %{y}: %{x}명<extra></extra>",
     )
 )
@@ -163,17 +213,16 @@ fig.update_layout(
         x=0.5,
         xanchor="center",
     ),
-    barmode="overlay",  # 두 막대를 중심에 맞춤
-    bargap=0.1,  # 막대 간격
+    barmode="overlay",
+    bargap=0.1,
     paper_bgcolor="#FFFDF9",
     plot_bgcolor="#FFFDF9",
-    height=800,  # 100개 이상의 나이 축이 잘 보이도록 높이 지정
+    height=750,
     legend=dict(
         orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1
     ),
     xaxis=dict(
         title="인구수 (명)",
-        # x축 눈금 레이아웃을 절대값(양수)으로 표시
         tickmode="array",
         tickvals=[
             -10000,
@@ -205,26 +254,36 @@ fig.update_layout(
     ),
     yaxis=dict(
         title="나이",
-        # 중요: 0세부터 100세 이상까지 순서를 고정하여 0세가 맨 아래에 오도록 설정
         type="category",
         categoryorder="array",
         categoryarray=age_labels,
         gridcolor="#EFEAE1",
-        dtick=5,  # 5세 단위로 눈금 라벨 표출
+        dtick=5,
     ),
 )
 
-# -----------------------------------------------------------------------------
-# 7. 화면 출력
-# -----------------------------------------------------------------------------
+# 그래프 화면 출력
 st.plotly_chart(fig, use_container_width=True)
 
-# 주요 요약 정보 표시
-total_m = sum(abs(x) for x in male_pop)
-total_f = sum(female_pop)
-total_pop = total_m + total_f
+# -----------------------------------------------------------------------------
+# 8. 피라미드 아래 자동 분석 한 줄 설명
+# -----------------------------------------------------------------------------
+st.markdown("### 💡 이 동네는 아이가 많은 편인가요, 어르신이 많은 편인가요?")
 
-col_a, col_b, col_c = st.columns(3)
-col_a.metric("전체 인구수", f"{total_pop:,} 명")
-col_b.metric("남성 인구수", f"{total_m:,} 명")
-col_c.metric("여성 인구수", f"{total_f:,} 명")
+# 아이(0~14세) 및 어르신(65세 이상) 비율 계산
+child_ratio = (
+    (child_population / total_population) * 100 if total_population > 0 else 0
+)
+
+# 동네 특성 분석 메시지 자동 작성
+if elderly_ratio >= 20.0 and child_ratio < 10.0:
+    analysis_text = f"이 동네는 어르신(65세 이상) 비율이 **{elderly_ratio:.1f}%**로 매우 높고, 아이(0~14세) 비율은 **{child_ratio:.1f}%**로 낮아 **어르신들이 주로 거주하시는 동네**입니다. 👴👵"
+elif child_ratio > elderly_ratio:
+    analysis_text = f"이 동네는 아이(0~14세) 비율이 **{child_ratio:.1f}%**로 어르신 비율(**{elderly_ratio:.1f}%**)보다 높아 **아이들과 젊은 세대가 비교적 많은 활기찬 동네**입니다. 👶🧒"
+elif elderly_ratio > child_ratio:
+    analysis_text = f"이 동네는 어르신(65세 이상) 비율이 **{elderly_ratio:.1f}%**로 아이 비율(**{child_ratio:.1f}%**)보다 높아서 **어르신 비중이 상대적으로 높은 동네**입니다. 👵👴"
+else:
+    analysis_text = f"이 동네는 아이(0~14세) 비율(**{child_ratio:.1f}%**)과 어르신(65세 이상) 비율(**{elderly_ratio:.1f}%**)이 **균형을 이루고 있는 동네**입니다. 🏡"
+
+# 안내 박스(info) 형태로 출력
+st.info(analysis_text)
