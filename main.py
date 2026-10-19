@@ -19,7 +19,7 @@ st.markdown("읍·면·동 인구 데이터를 바탕으로 시군구별 65세 �
 @st.cache_data
 def load_data():
     # 1. 인구 데이터 다운로드 및 압축 해제 (판다스로 바로 읽기)
-    pop_url = "https://raw.githubusercontent.com/wonducoffee89/population/contents//main/population_ts_yearly_gender.zip"
+    pop_url = "https://raw.githubusercontent.com/first2022-cyber/contents//main/population_ts_yearly_gender.zip"
     
     res = requests.get(pop_url)
     z = zipfile.ZipFile(io.BytesIO(res.content))
@@ -29,7 +29,7 @@ def load_data():
         df = pd.read_csv(f, dtype={'코드': str})
         
     # 2. 시군구 경계 GeoJSON 다운로드
-    geojson_url = "https://raw.githubusercontent.com/wonducoffee89/population/contents//main/sigungu_kr.geojson"
+    geojson_url = "https://raw.githubusercontent.com/first2022-cyber/contents//main/sigungu_kr.geojson"
     geo_res = requests.get(geojson_url)
     geojson_data = geo_res.json()
     
