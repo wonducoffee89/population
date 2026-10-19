@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # 페이지 기본 설정
@@ -14,7 +15,7 @@ st.set_page_config(
 )
 
 st.title("🗺️ 전국 시군구 인구 지표 단계구분도")
-st.markdown("연도별 읍·면·동 인구 데이터를 바탕으로 시군구별 고령화율 및 유소년 비율을 시각화합니다.")
+st.markdown("연도별 읍·면·동 인구 데이터를 바탕으로 시군구별 고령화율 및 유소년 비율을 시각화합니다. **(지도의 지역을 클릭하면 인구 피라미드 팝업이 뜹니다)**")
 
 @st.cache_data
 def load_data():
@@ -41,8 +42,6 @@ with st.spinner("데이터를 불러오는 중입니다... 잠시만 기다려�
 df['코드'] = df['코드'].astype(str)
 
 # 코드 개편 보정 규칙 적용
-# 1) 앞 2자리 시도 코드 보정 (42 -> 51, 45 -> 52)
-# 2) 군위군 보정 (47720 -> 27720)
 def fix_code(code_str):
     code_str = code_str.zfill(10)
     sigungu = code_str[:5]
@@ -112,13 +111,25 @@ df_year['전체인구'] = df_year[total_cols].sum(axis=1)
 df_year['유소년인구'] = df_year[youth_cols].sum(axis=1)
 df_year['고령인구'] = df_year[elderly_cols].sum(axis=1)
 
-grouped = df_year.groupby('sigungu_code').agg({
+# 연령별/성별 인구 집계를 위한 열 목록
+male_cols = [c for c in df_year.columns if c.startswith('남_')]
+female_cols = [c for c in df_year.columns if c.startswith('여_')]
+
+for c in male_cols + female_cols:
+    df_year[c] = pd.to_numeric(df_year[c], errors='coerce').fillna(0)
+
+# 시군구별 기본 지표 집계
+agg_dict = {
     '전체인구': 'sum',
     '유소년인구': 'sum',
     '고령인구': 'sum',
     '시군구': 'first',
     '시도': 'first'
-}).reset_index()
+}
+for c in male_cols + female_cols:
+    agg_dict[c] = 'sum'
+
+grouped = df_year.groupby('sigungu_code').agg(agg_dict).reset_index()
 
 grouped['고령화율'] = np.where(grouped['전체인구'] > 0, (grouped['고령인구'] / grouped['전체인구']) * 100, np.nan)
 grouped['유소년비율'] = np.where(grouped['전체인구'] > 0, (grouped['유소년인구'] / grouped['전체인구']) * 100, np.nan)
@@ -134,12 +145,12 @@ for f in geojson_data['features']:
     })
 geo_df = pd.DataFrame(geojson_records)
 
-# GeoJSON 정보 기준 전체 지역 병합 (미매칭 지역 누락 방지)
+# GeoJSON 정보 기준 전체 지역 병합
 merged_df = pd.merge(geo_df, grouped, on='sigungu_code', how='left')
 merged_df['시군구'] = merged_df['시군구'].fillna(merged_df['geo_sigungu'])
 merged_df['시도'] = merged_df['시도'].fillna(merged_df['geo_sido'])
 
-# 미매칭 코드 탐색 (안내문용)
+# 미매칭 코드 탐색
 data_codes = set(grouped['sigungu_code'].unique())
 geojson_codes = {f['properties']['코드']: f['properties']['시군구'] for f in geojson_data['features']}
 unmatched_codes = set(geojson_codes.keys()) - data_codes
@@ -198,7 +209,7 @@ if "고령화율" in indicator:
         "23% ~ 28%": "#fb6a4a",
         "28% ~ 38%": "#de2d26",
         "38% 이상": "#a50f15",
-        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 미매칭 국내 시군구만 회색 처리
+        "데이터 없음 (행정구역 개편/미비)": "#808080"
     }
 else:
     bins = [-1, 8, 10, 12, 14, 100]
@@ -215,7 +226,7 @@ else:
         "10% ~ 12%": "#6baed6",
         "12% ~ 14%": "#3182bd",
         "14% 이상": "#08519c",
-        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 미매칭 국내 시군구만 회색 처리
+        "데이터 없음 (행정구역 개편/미비)": "#808080"
     }
 
 # 툴팁 표시문구 설정
@@ -236,7 +247,7 @@ fig = px.choropleth(
     labels={'비율_표시': metric_name.split()[0]}
 )
 
-# 지도 배경 및 투명/하얀색 레이어 설정 (국외 및 북한 지역은 하얀색 배경으로 유지)
+# 지도 배경 및 투명/하얀색 레이어 설정
 fig.update_geos(
     fitbounds="locations",
     visible=False,
@@ -252,9 +263,102 @@ fig.update_layout(
     plot_bgcolor="white"
 )
 
-st.plotly_chart(fig, use_container_width=True)
+# --- 팝업 모달 함수 (st.dialog 활용) ---
+@st.dialog("📊 인구 피라미드 차트", width="large")
+def show_pyramid_dialog(row_data, year):
+    sigungu_name = row_data['시군구']
+    sido_name = row_data['시도']
+    
+    st.subheader(f"📍 {sido_name} {sigungu_name} ({year}년)")
+    
+    if pd.isna(row_data.get('전체인구')) or row_data.get('전체인구', 0) == 0:
+        st.warning("이 지역은 행정구역 개편 또는 데이터 미비로 상세 인구 데이터가 존재하지 않습니다.")
+        return
 
-# 하단 안내 문구 (전버전 스타일로 유지)
+    # 연령대 열 수집 및 정리 (0세 ~ 100세 이상)
+    ages = []
+    male_pop = []
+    female_pop = []
+    
+    for i in range(101):
+        age_str = f"{i}세" if i < 100 else "100세 이상"
+        m_col = f"남_{age_str}"
+        f_col = f"여_{age_str}"
+        
+        ages.append(age_str)
+        male_pop.append(row_data.get(m_col, 0))
+        female_pop.append(row_data.get(f_col, 0))
+
+    pyramid_df = pd.DataFrame({
+        '연령': ages,
+        '남성': male_pop,
+        '여성': female_pop
+    })
+
+    # 피라미드 그래프 생성 (남성은 음수로 설정하여 좌측 배치)
+    fig_pyramid = go.Figure()
+
+    fig_pyramid.add_trace(go.Bar(
+        y=pyramid_df['연령'],
+        x=-pyramid_df['남성'],
+        name='남성',
+        orientation='h',
+        marker=dict(color='#3182bd'),
+        hovertemplate='연령: %{y}<br>남성 인구: %{customdata:,}명<extra></extra>',
+        customdata=pyramid_df['남성']
+    ))
+
+    fig_pyramid.add_trace(go.Bar(
+        y=pyramid_df['연령'],
+        x=pyramid_df['여성'],
+        name='여성',
+        orientation='h',
+        marker=dict(color='#de2d26'),
+        hovertemplate='연령: %{y}<br>여성 인구: %{x:,}명<extra></extra>'
+    ))
+
+    # X축 눈금을 양수로 표기하도록 레이아웃 조절
+    max_val = max(max(male_pop), max(female_pop)) * 1.1 if max(male_pop + female_pop) > 0 else 100
+    
+    fig_pyramid.update_layout(
+        barmode='relative',
+        bargap=0.1,
+        height=500,
+        xaxis=dict(
+            title='인구 수 (명)',
+            range=[-max_val, max_val],
+            tickmode='array',
+            tickvals=[-max_val, -max_val/2, 0, max_val/2, max_val],
+            ticktext=[f"{int(max_val):,}", f"{int(max_val/2):,}", "0", f"{int(max_val/2):,}", f"{int(max_val):,}"]
+        ),
+        yaxis=dict(title='연령 (1세 단위)', dtick=10),
+        legend=dict(x=0.8, y=1.0)
+    )
+
+    st.plotly_chart(fig_pyramid, use_container_width=True)
+    
+    # 요약 수치
+    total = row_data['전체인구']
+    elderly = row_data['고령인구']
+    youth = row_data['유소년인구']
+    st.caption(f"총인구: **{int(total):,}명** | 65세 이상: **{int(elderly):,}명** ({(elderly/total*100):.1f}%) | 0~14세: **{int(youth):,}명** ({(youth/total*100):.1f}%)")
+
+
+# Streamlit 이벤트 감지 차트 출력
+event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+
+# 클릭 시 팝업 띄우기
+if event and "selection" in event and "points" in event["selection"]:
+    points = event["selection"]["points"]
+    if len(points) > 0:
+        point = points[0]
+        # 클릭한 지점의 point_index 추출
+        point_idx = point.get("point_index")
+        if point_idx is not None and point_idx < len(target_df):
+            selected_row = target_df.iloc[point_idx]
+            show_pyramid_dialog(selected_row, selected_year)
+
+# 하단 안내 문구
 if unmatched_codes:
     unmatched_names = [geojson_codes[c] for c in unmatched_codes if c in geojson_codes]
     st.info(f"💡 **안내**: 행정구역 개편 또는 데이터 미비로 인해 경계 파일과 매칭되지 않는 일부 지역은 회색으로 표시됩니다. "
