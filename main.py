@@ -198,7 +198,7 @@ if "고령화율" in indicator:
         "23% ~ 28%": "#fb6a4a",
         "28% ~ 38%": "#de2d26",
         "38% 이상": "#a50f15",
-        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 명확한 회색
+        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 미매칭 국내 시군구만 회색 처리
     }
 else:
     bins = [-1, 8, 10, 12, 14, 100]
@@ -215,7 +215,7 @@ else:
         "10% ~ 12%": "#6baed6",
         "12% ~ 14%": "#3182bd",
         "14% 이상": "#08519c",
-        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 명확한 회색
+        "데이터 없음 (행정구역 개편/미비)": "#808080"  # 미매칭 국내 시군구만 회색 처리
     }
 
 # 툴팁 표시문구 설정
@@ -236,22 +236,25 @@ fig = px.choropleth(
     labels={'비율_표시': metric_name.split()[0]}
 )
 
-# 지도 배경/레이어 설정 (비어있는 지형도 명확한 회색 및 라인 레이어로 표시)
+# 지도 배경 및 투명/하얀색 레이어 설정 (국외 및 북한 지역은 하얀색 배경으로 유지)
 fig.update_geos(
     fitbounds="locations",
     visible=False,
-    showland=True,
-    landcolor="#808080"
+    showland=False,
+    showocean=False,
+    showlakes=False
 )
 
 fig.update_layout(
     margin={"r":0, "t":10, "l":0, "b":0},
-    height=680
+    height=680,
+    paper_bgcolor="white",
+    plot_bgcolor="white"
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-# 이전 버전 방식의 깔끔한 하단 안내 문구 픽스
+# 하단 안내 문구 (전버전 스타일로 유지)
 if unmatched_codes:
     unmatched_names = [geojson_codes[c] for c in unmatched_codes if c in geojson_codes]
     st.info(f"💡 **안내**: 행정구역 개편 또는 데이터 미비로 인해 경계 파일과 매칭되지 않는 일부 지역은 회색으로 표시됩니다. "
